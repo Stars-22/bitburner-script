@@ -28,7 +28,7 @@ function analyzeServer(ns, server) {
 	// ns.print(`HackChance: ${hackChance * 100} %`);
 
 	// hack导致的安全值上升
-	// const hackSecurityGrow = ns.hackAnalyzeSecurity(1);
+	const hackSecurityGrow = 0.002 //ns.hackAnalyzeSecurity(1);
 	// ns.print(`HackSecurityGrow: ${hackSecurityGrow}`);
 
 	// 当前Hack时间
@@ -48,7 +48,7 @@ function analyzeServer(ns, server) {
 	// ns.print(`GrowPercent: ${growPercent / 100} %`);
 
 	// // grow导致的安全值上升
-	// const growSecurityGrow = ns.growthAnalyzeSecurity(1);
+	const growSecurityGrow = 0.004 //ns.growthAnalyzeSecurity(1);
 	// ns.print(`GrowSecurityGrow: ${growSecurityGrow}`);
 
 	// grow时间
@@ -86,9 +86,9 @@ async function hackEventLoop(ns, name, delayInterval, hackScript, growScript, we
 
 	// 目标服务器当前情况
 	const moneyMax = ns.getServerMaxMoney(server.hostname);
-	const moneyThreshold = moneyMax * 0.8;
+	const moneyThreshold = moneyMax * 0.9;
 	const securityMin = server.minDifficulty;
-	const securityThreshold = (server.baseDifficulty - securityMin) * 0.2 + securityMin;
+	const securityThreshold = (server.baseDifficulty - securityMin) * 0.1 + securityMin;
 
 	// 脚本内存占用
 	const hackRam = ns.getScriptRam(hackScript);
@@ -110,12 +110,6 @@ async function hackEventLoop(ns, name, delayInterval, hackScript, growScript, we
 		const needWeaken = security > securityThreshold;
 		const needGrow = money < moneyThreshold;
 
-		// 计算Weaken所需线程
-		var weakenThread = 0;
-		if (needWeaken) {
-			weakenThread = Math.floor((security - securityThreshold) / analyze.weakenValue);
-		}
-
 		// 计算Grow所需线程
 		var growThread = 0;
 		var moneyTarget = money;
@@ -132,6 +126,12 @@ async function hackEventLoop(ns, name, delayInterval, hackScript, growScript, we
 		// [Bug] 防止计算出无限值，目前发现hackPercent有可能返回0
 		if (hackThread === Infinity) {
 			hackThread = 1000;
+		}
+
+		// 计算Weaken所需线程
+		var weakenThread = 0;
+		if (needWeaken) {
+			weakenThread = Math.floor((security - securityThreshold + growThread * analyze.growSecurityGrow + hackThread * analyze.hackSecurityGrow) / analyze.weakenValue);
 		}
 
 		ns.print(`【${count}】初步计算\nWeaken(t=${weakenThread}), 安全(${security.toFixed(2)}), 阈值(${securityThreshold.toFixed(2)})\nGrow(t=${growThread}), 当前(${formatMoney(money)}), 阈值(${(formatMoney(moneyThreshold))}),\nHack(t=${hackThread})`);
@@ -154,11 +154,19 @@ async function hackEventLoop(ns, name, delayInterval, hackScript, growScript, we
 				let hackDelta = Math.min(hackNeedRam, deltaRam);
 				let hackDeltaCount = Math.ceil(hackDelta / hackRam);
 				deltaRam -= hackDelta;
+				if (Math.ceil(hackDeltaCount*analyze.hackSecurityGrow/analyze.weakenValue)){
+					weakenThread -= Math.ceil(hackDeltaCount*analyze.hackSecurityGrow/analyze.weakenValue);
+					continue;
+				}
 				if (deltaRam < 0) deltaRam = 0;
 
 				let growDelta = Math.min(growNeedRam, deltaRam);
 				let growDeltaCount = Math.ceil(growDelta / growRam);
 				deltaRam -= growDelta;
+				if (Math.ceil(growDeltaCount*analyze.GrowSecurityGrow/analyze.weakenValue)){
+					weakenThread -= Math.ceil(growDeltaCount*analyze.GrowSecurityGrow/analyze.weakenValue);
+					continue;
+				}
 				if (deltaRam < 0) deltaRam = 0;
 
 				let weakenDelta = deltaRam;
@@ -215,7 +223,7 @@ async function hackEventLoop(ns, name, delayInterval, hackScript, growScript, we
 
 		let totalTime = Math.max(weakenTime, growTime, hackTime) + 1000;
 		ns.print(`【${count}】开始执行脚本，预计需要${(totalTime / 1000).toFixed(3)} s`);
-		await ns.sleep(totalTime);
+		await ns.sleep(delayInterval*10);
 	}
 }
 
